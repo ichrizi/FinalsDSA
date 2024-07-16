@@ -139,35 +139,104 @@ public:
             }
         }
     }
-     void listRentedVideosByCustomer(const std::queue<CustomerRent>& customers, const std::vector<Video>& videos, int customerId) const;
+    void listRentedVideosByCustomer(const std::queue<CustomerRent>& customers, const std::vector<Video>& videos, int customerId) {
+        std::queue<CustomerRent> tempQueue = customers;
+        bool customerFound = false;
+
+        while (!tempQueue.empty()) {
+            CustomerRent customer = tempQueue.front();
+            tempQueue.pop();
+
+            if (customer.customerID == customerId) {
+                customerFound = true;
+                cout << "Customer ID: " << customer.customerID << endl;
+                cout << "Name: " << customer.name << endl;
+                cout << "Address: " << customer.address << endl;
+                cout << "Rented Videos:" << endl;
+                customer.printRentedVideos(videos);
+                break; // Exit loop once customer is found
+            }
+        }
+
+        if (!customerFound) {
+            cout << "Customer with ID " << customerId << " not found." << std::endl;
+        }
+    }
 };
 
-queue<CustomerRent> loadCustomers(const string& filename) {
+queue<CustomerRent> loadCustomers(const string& customerFilename, const string& rentedVideosFilename) {
     queue<CustomerRent> customers;
-    ifstream infile(filename);
+    ifstream infile(customerFilename);
     if (infile.is_open()) {
-        int id;
+        int customerId;
         string name, address;
-        while (infile >> id >> name >> address) {
-            customers.push(CustomerRent(id, name, address));
+        while (infile >> customerId >> ws && getline(infile, name, ',') && getline(infile, address)) {
+            CustomerRent customer(customerId, name, address);
+            customers.push(customer);
         }
         infile.close();
+    } else {
+        cout << "Unable to open customer file: " << customerFilename << endl;
     }
+
+    // Load rented videos
+    ifstream rentedFile(rentedVideosFilename);
+    if (rentedFile.is_open()) {
+        int customerId, videoId;
+        queue<CustomerRent> tempQueue;
+        while (!customers.empty()) {
+            CustomerRent customer = customers.front();
+            customers.pop();
+            while (rentedFile >> customerId >> videoId) {
+                if (customer.customerID == customerId) {
+                    customer.rentVideo(videoId);
+                }
+            }
+            tempQueue.push(customer);
+        }
+        rentedFile.close();
+        customers = tempQueue;
+    } else {
+        cout << "Unable to open rented videos file: " << rentedVideosFilename << endl;
+    }
+
     return customers;
 }
 
-void saveCustomers(queue<CustomerRent>& customers, const string& filename) {
-    ofstream outfile(filename);
+
+void saveCustomers(queue<CustomerRent>& customers, const string& customerFilename, const string& rentedVideosFilename) {
+    ofstream outfile(customerFilename);
     if (outfile.is_open()) {
         queue<CustomerRent> temp = customers;
         while (!temp.empty()) {
             CustomerRent customer = temp.front();
             temp.pop();
-            outfile << customer.customerID << " " << customer.name << " " << customer.address << endl;
+            outfile << customer.customerID << " " << customer.name << "," << customer.address << endl;
         }
         outfile.close();
+    } else {
+        cout << "Unable to open customer file: " << customerFilename << endl;
+    }
+
+    // Save rented videos
+    ofstream rentedFile(rentedVideosFilename);
+    if (rentedFile.is_open()) {
+        queue<CustomerRent> temp = customers;
+        while (!temp.empty()) {
+            CustomerRent customer = temp.front();
+            temp.pop();
+            stack<int> rentedVideos = customer.rentedVideos;
+            while (!rentedVideos.empty()) {
+                rentedFile << customer.customerID << " " << rentedVideos.top() << endl;
+                rentedVideos.pop();
+            }
+        }
+        rentedFile.close();
+    } else {
+        cout << "Unable to open rented videos file: " << rentedVideosFilename << endl;
     }
 }
+
 
 void saveRentedVideos(queue<CustomerRent>& customers, const string& filename) {
     ofstream outfile(filename);
@@ -183,30 +252,8 @@ void saveRentedVideos(queue<CustomerRent>& customers, const string& filename) {
             }
         }
         outfile.close();
-    }
-}
-
-void listRentedVideosByCustomer(const std::queue<CustomerRent>& customers, const std::vector<Video>& videos, int customerId) {
-    std::queue<CustomerRent> tempQueue = customers;
-    bool customerFound = false;
-    
-    while (!tempQueue.empty()) {
-        CustomerRent customer = tempQueue.front();
-        tempQueue.pop();
-        
-        if (customer.customerID == customerId) {
-            customerFound = true;
-            std::cout << "Customer ID: " << customer.customerID << std::endl;
-            std::cout << "Name: " << customer.name << std::endl;
-            std::cout << "Address: " << customer.address << std::endl;
-            std::cout << "Rented Videos:" << std::endl;
-            customer.printRentedVideos(videos); // Assuming printRentedVideos exists in CustomerRent
-            break; // Exit loop once customer is found
-        }
-    }
-    
-    if (!customerFound) {
-        std::cout << "Customer with ID " << customerId << " not found." << std::endl;
+    } else {
+        cout << "Unable to open file: " << filename << endl;
     }
 }
 
@@ -402,21 +449,26 @@ public:
 	        return false;
 	    }
 	}
-
-   
 };
-
-
 
 int main() {
     Video::initializeNextID();
     Customer::initializeNextID();
-	vector<Video> videos;
+    
+    vector<Video> videos;
     LinkedList videoList;
     videoList.loadFromFile("inventory.txt");
+    
+    // Populate the videos vector with the videos from the linked list
+    LinkedList::Node* tempNode = videoList.getHead();
+    while (tempNode != nullptr) {
+        videos.push_back(tempNode->data);
+        tempNode = tempNode->next;
+    }
 
-    queue<CustomerRent> customerQueue = loadCustomers("customers.txt");
-	queue<CustomerRent> customers;
+    queue<CustomerRent> customerQueue = loadCustomers("customers.txt", "rented_videos.txt");
+    queue<CustomerRent> customers;
+
     int choice;
     do {
         cout << "\nMenu:\n";
@@ -426,11 +478,19 @@ int main() {
         cout << "4. Show Video Details\n";
         cout << "5. Display all videos\n";
         cout << "6. Check Video Availability\n";
-        cout << "7. Customer Maintainance\n";
+        cout << "7. Customer Maintenance\n";
         cout << "8. Remove Video\n";
         cout << "9. Exit\n";
         cout << "Enter your choice: ";
-        cin >> choice;
+        while (!(cin >> choice)) {
+
+        cin.clear();
+
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+        cout << "Invalid input! Please try again with valid input: ";
+    }
+    
 
         switch (choice) {
         case 1: {
@@ -449,11 +509,12 @@ int main() {
 
             Video newVideo(id, title, genre, production, copies);
             videoList.insert(newVideo);
+            videos.push_back(newVideo); // Add to the vector as well
             cout << "Video added successfully.\n";
             break;
         }
         case 2: {
-        	int customerID, videoID;
+            int customerID, videoID;
             cout << "Enter customer ID: ";
             cin >> customerID;
             cout << "Enter video ID: ";
@@ -480,7 +541,7 @@ int main() {
             break;
         }
         case 3: {
-        	int customerID, videoID;
+            int customerID, videoID;
             cout << "Enter customer ID: ";
             cin >> customerID;
             cout << "Enter video ID: ";
@@ -517,104 +578,122 @@ int main() {
             break;
         }
         case 6: {
-        	int videoID;
+            int videoID;
             cout << "Enter video ID to check availability: ";
             cin >> videoID;
             videoList.checkVideoAvailability(videoID);
             system("pause");
             break;
         }
-        case 7: {
-    // Customer maintenance operations
-    CustomerRent newCustomer;
-    int subChoice;
+        case 7: { // Customer maintenance operations
+                CustomerRent newCustomer;
+                int subChoice;
 
-    do {
-        system("CLS");
-        std::cout << "========================================" << std::endl
-                  << "|         Customer Maintenance         |" << std::endl
-                  << "========================================" << std::endl
-                  << "|                                      |" << std::endl
-                  << "|   [1] - Add New Customer             |" << std::endl
-                  << "|   [2] - Show Customer Details        |" << std::endl
-                  << "|   [3] - List of Videos Rented        |" << std::endl
-                  << "|         by a Customer                |" << std::endl
-                  << "|   [0] - Cancel                       |" << std::endl
-                  << "|                                      |" << std::endl
-                  << "========================================" << std::endl << std::endl
-                  << "Enter your choice: ";
-        std::cin >> subChoice;
-        std::cin.ignore();
+                do {
+                    system("CLS");
+                    std::cout << "========================================" << std::endl
+                            << "|         Customer Maintenance         |" << std::endl
+                            << "========================================" << std::endl
+                            << "|                                      |" << std::endl
+                            << "|   [1] - Add New Customer             |" << std::endl
+                            << "|   [2] - Show Customer Details        |" << std::endl
+                            << "|   [3] - List of Videos Rented        |" << std::endl
+                            << "|         by a Customer                |" << std::endl
+                            << "|   [0] - Cancel                       |" << std::endl
+                            << "|                                      |" << std::endl
+                            << "========================================" << std::endl << std::endl
+                            << "Enter your choice: ";
+                    std::cin >> subChoice;
+                    std::cin.ignore();
 
-        switch (subChoice) {
-            case 1: { // Add New Customer
-                int id = Customer::getNextID();
-                std::string name, address;
-                std::cout << "Enter customer name: ";
-                std::cin.ignore();
-                std::getline(std::cin, name);
-                std::cout << "Enter customer address: ";
-                std::getline(std::cin, address);
-                CustomerRent newCustomer(id, name, address);
-                customerQueue.push(newCustomer);
-                customers.push(newCustomer);
-                std::cout << "Customer added successfully. Customer ID: " << id << std::endl;
-                saveCustomers(customerQueue, "customers.txt");
-                system("pause");
+                    switch (subChoice) {
+                        case 1: { // Add New Customer
+                            int id = Customer::getNextID();
+                            string name, address;
+                            cout << "Enter customer name: ";
+                            getline(cin, name);
+                            cout << "Enter customer address: ";
+                            getline(cin, address);
+                            CustomerRent newCustomer(id, name, address);
+                            customerQueue.push(newCustomer);
+                            cout << "Customer added successfully. Customer ID: " << id << std::endl;
+                            system("pause");
+                            break;
+                        }
+                        case 2: { // Show Customer Details
+                            int customerId;
+                            cout << "Enter customer ID: ";
+                            cin >> customerId;
+
+                            bool customerFound = false;
+                            queue<CustomerRent> tempQueue = customerQueue;
+
+                            while (!tempQueue.empty()) {
+                                CustomerRent customer = tempQueue.front();
+                                tempQueue.pop();
+
+                                if (customer.customerID == customerId) {
+                                    customerFound = true;
+                                    cout << "Customer ID: " << customer.customerID << endl;
+                                    cout << "Name: " << customer.name << endl;
+                                    cout << "Address: " << customer.address << endl;
+                                    break;
+                                }
+                            }
+
+                            if (!customerFound) {
+                                cout << "Customer with ID " << customerId << " not found." << endl;
+                            }
+
+                            system("pause");
+                            break;
+                        }
+                        case 3: { // List Of Videos Rented By A Customer
+                            int customerId;
+                            cout << "Enter customer ID: ";
+                            cin >> customerId;
+                            CustomerRent().listRentedVideosByCustomer(customerQueue, videos, customerId);
+                            system("pause");
+                            break;
+                        }
+                        case 0: { // Cancel Customer Maintenance
+                            cout << std::endl << "Returning to Menu: Press any key to proceed...";
+                            cin.ignore();
+                            system("CLS");
+                            break;
+                        }
+                        default:
+                            cout << endl << "Invalid Input: Press any key to try again...";
+                            cin.ignore();
+                            system("CLS");
+                    }
+                } while (subChoice != 0); // Loop until user chooses to cancel
                 break;
             }
-            case 2: { // Show Customer Details
-            
-            }
-            case 3: { // List Of Videos Rented By A Customer
-                int customerId;
-                std::cout << "Enter customer ID: ";
-                std::cin >> customerId;
-                listRentedVideosByCustomer(customers, videos, customerId);
-                system("pause");
+            case 8: {
+                int videoID;
+                cout << "Enter video ID to remove: ";
+                cin >> videoID;
+                if (videoList.remove(videoID)) {
+                    cout << "Video removed successfully.\n";
+                } else {
+                    cout << "Video with ID " << videoID << " not found in the inventory.\n";
+                }
                 break;
             }
-            case 0: { // Cancel Customer Maintenance
-                std::cout << std::endl << "Returning to Menu: Press any key to proceed...";
-                std::cin.ignore();
-                system("CLS");
+            case 9: { // Save data before exiting
+                videoList.saveToFile("inventory.txt");
+                saveCustomers(customerQueue, "customers.txt", "rented_videos.txt");
+                cout << "Data saved successfully.\n";
+                cout << "Exiting...\n";
                 break;
             }
             default:
-                std::cout << std::endl << "Invalid Input: Press any key to try again...";
-                std::cin.ignore();
-                system("CLS");
-        }
-
-    } while (subChoice != 0); // Loop until user chooses to cancel
-
-    break;
-}
-        case 8: {
-           int videoID;
-            cout << "Enter video ID to remove: ";
-            cin >> videoID;
-            if (videoList.remove(videoID)) {
-                cout << "Video removed successfully.\n";
-            } else {
-                cout << "Video not found.\n";
-            }
-            break;
-        }
-        case 9: {
-          	videoList.saveToFile("inventory.txt");
-            saveCustomers(customerQueue, "customers.txt");
-            saveRentedVideos(customerQueue, "rented_videos.txt");
-            cout << "Data saved successfully.\n";
-			cout << "Exiting...\n";
-        	break;
-        }
-        default:
-            cout << "Invalid choice. Try again.\n";
-            break;
+                cout << "Invalid choice. Try again.\n";
+                break;
         }
     } while (choice != 9);
 
+    saveCustomers(customerQueue, "customers.txt", "rented_videos.txt");
     return 0;
 }
-
